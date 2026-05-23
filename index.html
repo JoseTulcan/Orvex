@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%236C63FF'/><text x='50' y='67' font-family='Arial Black,sans-serif' font-size='52' font-weight='900' text-anchor='middle' fill='white'>O</text></svg>">
 <title>ORVEX</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <style>
@@ -135,6 +134,13 @@
   .modal-overview-label { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--muted); margin-bottom:0.5rem; }
   #modal-overview { font-size:0.88rem; line-height:1.75; color:rgba(240,236,228,0.8); border-left:2px solid var(--accent); padding-left:1rem; }
   .modal-actions { display:flex; gap:0.6rem; flex-wrap:wrap; margin-top:1.25rem; }
+  .providers-section { margin-top:1.25rem; }
+  .providers-label { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--muted); margin-bottom:0.6rem; }
+  .providers-row { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; }
+  .provider-btn { display:inline-flex; align-items:center; gap:0.5rem; background:var(--surface2); border:1px solid rgba(255,255,255,0.08); color:var(--text); font-family:'DM Sans',sans-serif; font-size:0.78rem; font-weight:400; padding:0.45rem 0.9rem 0.45rem 0.5rem; cursor:pointer; border-radius:3px; transition:all 0.2s; text-decoration:none; white-space:nowrap; }
+  .provider-btn:hover { border-color:var(--accent); background:rgba(108,99,255,0.12); transform:translateY(-1px); }
+  .provider-btn img { width:24px; height:24px; border-radius:4px; object-fit:cover; flex-shrink:0; }
+  .provider-btn .pname { max-width:100px; overflow:hidden; text-overflow:ellipsis; }
 
   /* TOAST */
   #toast { position:fixed; bottom:2rem; left:50%; transform:translateX(-50%) translateY(100px); background:var(--surface2); border:1px solid rgba(108,99,255,0.2); color:var(--text); font-size:0.82rem; padding:0.65rem 1.25rem; z-index:500; transition:transform 0.3s ease; white-space:nowrap; }
@@ -255,6 +261,10 @@
         <div id="modal-overview"></div>
       </div>
       <div class="modal-actions" id="modal-actions"></div>
+      <div class="providers-section" id="providers-section" style="display:none">
+        <div class="providers-label">Disponible en</div>
+        <div class="providers-row" id="providers-row"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -280,12 +290,23 @@ let currentImdbId = null;
 let currentPlayImdbUrl = null;
 let isSearchMode = false;
 let isFilterMode = false;
+let userCountry = 'US'; // default fallback
 
 // ─── INIT ───────────────────────────────────────────────────────────────────
 async function init() {
-  await Promise.all([loadGenres('movie'), loadGenres('tv')]);
+  await Promise.all([detectCountry(), loadGenres('movie'), loadGenres('tv')]);
   buildGenrePills();
   loadHomeRows();
+}
+
+async function detectCountry() {
+  try {
+    const r = await fetch('https://ipapi.co/json/');
+    const d = await r.json();
+    if (d.country_code) userCountry = d.country_code;
+  } catch(e) {
+    // keep default 'US' — works for most providers
+  }
 }
 
 // ─── GENRES ─────────────────────────────────────────────────────────────────
@@ -669,8 +690,23 @@ async function openModal(id, type, autoplay=false) {
     currentImdbId = imdbId;
     currentPlayImdbUrl = imdbId ? `https://www.playimdb.com/es/title/${imdbId}/` : null;
 
+    // Watch providers
+    let providers = [];
+    try {
+      const provRes = await fetch(`${BASE}/${type}/${id}/watch/providers?api_key=${API_KEY}`);
+      const provData = await provRes.json();
+      const countryData = provData.results?.[userCountry] || provData.results?.['US'] || null;
+      if (countryData?.flatrate?.length) {
+        providers = countryData.flatrate.map(p => ({
+          name: p.provider_name,
+          logo: `https://image.tmdb.org/t/p/original${p.logo_path}`,
+          link: countryData.link || '#'
+        }));
+      }
+    } catch(e) {}
+
     // Actions
-    buildModalActions(currentTrailerKey, currentPlayImdbUrl, imdbId);
+    buildModalActions(currentTrailerKey, imdbId, providers);
 
     // Autoplay
     if (autoplay && currentTrailerKey) playTrailer(currentTrailerKey);
@@ -681,7 +717,7 @@ async function openModal(id, type, autoplay=false) {
   }
 }
 
-function buildModalActions(trailerKey, playImdbUrl, imdbId) {
+function buildModalActions(trailerKey, imdbId, providers) {
   const actions = document.getElementById('modal-actions');
   actions.innerHTML = '';
 
@@ -691,22 +727,6 @@ function buildModalActions(trailerKey, playImdbUrl, imdbId) {
     btn.innerHTML = '▶ Tráiler';
     btn.onclick = () => playTrailer(trailerKey);
     actions.appendChild(btn);
-
-    const ytBtn = document.createElement('button');
-    ytBtn.className = 'btn-yt';
-    ytBtn.innerHTML = '▶ YouTube';
-    ytBtn.title = 'Abrir en YouTube';
-    ytBtn.onclick = () => window.open(`https://www.youtube.com/watch?v=${trailerKey}`, '_blank');
-    actions.appendChild(ytBtn);
-  }
-
-  if (playImdbUrl) {
-    const verBtn = document.createElement('button');
-    verBtn.className = 'btn-ver';
-    verBtn.innerHTML = '▶ VER';
-    verBtn.title = 'Ver en PlayIMDb';
-    verBtn.onclick = () => window.open(playImdbUrl, '_blank');
-    actions.appendChild(verBtn);
   }
 
   if (imdbId) {
@@ -715,6 +735,26 @@ function buildModalActions(trailerKey, playImdbUrl, imdbId) {
     imdbBtn.innerHTML = 'IMDb ↗';
     imdbBtn.onclick = () => window.open(`https://www.imdb.com/es/title/${imdbId}`, '_blank');
     actions.appendChild(imdbBtn);
+  }
+
+  // Streaming providers
+  const provSection = document.getElementById('providers-section');
+  const provRow = document.getElementById('providers-row');
+  provRow.innerHTML = '';
+
+  if (providers && providers.length > 0) {
+    provSection.style.display = 'block';
+    providers.forEach(p => {
+      const a = document.createElement('a');
+      a.className = 'provider-btn';
+      a.href = p.link;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.innerHTML = `<img src="${p.logo}" alt="${p.name}" onerror="this.style.display='none'"><span class="pname">${p.name}</span>`;
+      provRow.appendChild(a);
+    });
+  } else {
+    provSection.style.display = 'none';
   }
 }
 
@@ -763,6 +803,8 @@ function resetModal() {
   document.getElementById('modal-genres').innerHTML = '';
   document.getElementById('modal-overview').textContent = '';
   document.getElementById('modal-actions').innerHTML = '';
+  document.getElementById('providers-section').style.display = 'none';
+  document.getElementById('providers-row').innerHTML = '';
 }
 
 function closeModal() {
